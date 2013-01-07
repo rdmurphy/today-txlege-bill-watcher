@@ -72,7 +72,7 @@ def main():
                 break
             except requests.exceptions.ConnectionError:
                 print('\nCould not connect to pull initial table count, trying again in 60 seconds')
-                sleep(60)
+                sleep(10)
                 continue
 
         while True:
