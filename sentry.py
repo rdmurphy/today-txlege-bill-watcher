@@ -10,6 +10,8 @@ from pytz import timezone
 
 
 TODAY_URL = 'http://www.capitol.state.tx.us/Reports/Report.aspx?ID=todayfiled'
+AWS_ID = os.environ['AWS_ACCESS_KEY_ID']
+AWS_KEY = os.environ['AWS_SECRET_ACCESS_KEY']
 FROM_EMAIL = os.environ['FROM_EMAIL']
 RECEIVING_EMAILS = [a.strip() for a in os.environ['RECEIVING_EMAILS'].split(',')]
 PREFERRED_TZ = 'US/Central'
@@ -28,8 +30,8 @@ def send_new_bill_email(payload):
     d = datetime.now(timezone(PREFERRED_TZ))
     format = '%I:%M %p %m/%d/%y'
     conn = boto.connect_ses(
-        os.environ['AWS_ACCESS_KEY_ID'],
-        os.environ['AWS_SECRET_ACCESS_KEY']
+        AWS_ID,
+        AWS_KEY
     )
 
     conn.send_email(
