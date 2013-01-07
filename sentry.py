@@ -64,14 +64,17 @@ def count_tables(pq_doc):
 
 def main():
     try:
-        inital_request = pq(url=TODAY_URL)
-        initial_count = count_tables(inital_request)
-        initial_bills = get_set_of_bills_on_page(inital_request)
-    except requests.exceptions.ConnectionError:
-        print('\nCould not connect to pull initial table count, halting...')
-        return False
+        while True:
+            try:
+                inital_request = pq(url=TODAY_URL)
+                initial_count = count_tables(inital_request)
+                initial_bills = get_set_of_bills_on_page(inital_request)
+                break
+            except requests.exceptions.ConnectionError:
+                print('\nCould not connect to pull initial table count, trying again in 60 seconds')
+                sleep(60)
+                continue
 
-    try:
         while True:
             try:
                 doc = pq(url=TODAY_URL)
