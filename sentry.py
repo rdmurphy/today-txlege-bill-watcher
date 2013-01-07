@@ -71,7 +71,7 @@ def main():
                 initial_bills = get_set_of_bills_on_page(inital_request)
                 break
             except requests.exceptions.ConnectionError:
-                print('\nCould not connect to pull initial table count, trying again in 60 seconds')
+                print('\nCould not connect to pull initial table count, trying again in 10 seconds')
                 sleep(10)
                 continue
 
