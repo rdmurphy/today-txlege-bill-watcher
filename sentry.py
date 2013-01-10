@@ -88,7 +88,7 @@ def main():
             if current_count == initial_count:
                 sys.stdout.write('.')
                 sys.stdout.flush()
-                sleep(60 * 5)
+                sleep(60 * 10)
             else:
                 new_bills = list(current_bills - initial_bills)
                 print('\nNew things have been filed!')
