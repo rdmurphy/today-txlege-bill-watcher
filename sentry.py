@@ -1,104 +1,103 @@
-import sys
 import os
+import sys
 from time import sleep
-from datetime import datetime
+from json import dumps
 
-import boto
 import requests
 from pyquery import PyQuery as pq
-from pytz import timezone
-
+from redis import from_url
 
 TODAY_URL = 'http://www.capitol.state.tx.us/Reports/Report.aspx?ID=todayfiled'
-AWS_ID = os.environ['AWS_ACCESS_KEY_ID']
-AWS_KEY = os.environ['AWS_SECRET_ACCESS_KEY']
-FROM_EMAIL = os.environ['FROM_EMAIL']
-RECEIVING_EMAILS = [a.strip() for a in os.environ['RECEIVING_EMAILS'].split(',')]
-PREFERRED_TZ = 'US/Central'
+FIRST_RUN = True
+REDIS_CONN = from_url(os.environ['REDISTOGO_URL'])
 
 
-def prepare_email_body(bill_list):
-    payload = ''
-    for bill in bill_list:
-        link = '<a href="{0}">{1}</a> by {2}<br>'.format(bill[3], bill[0], bill[1])
-        payload = payload + link + '{0}<br><br>'.format(bill[2])
+def redis_new_bill_loader(bills):
+    payload = []
+    for bill in bills:
+        payload.append(dumps({
+            'bill': bill[0],
+            'name': bill[1],
+            'bill_text': bill[2],
+            'bill_url': bill[3]
+            }))
 
-    return payload
-
-
-def send_new_bill_email(payload):
-    d = datetime.now(timezone(PREFERRED_TZ))
-    format = '%I:%M %p %m/%d/%y'
-    conn = boto.connect_ses(
-        AWS_ID,
-        AWS_KEY
-    )
-
-    conn.send_email(
-        FROM_EMAIL,
-        'New bills have been filed! ({0})'.format(d.strftime(format)),
-        payload,
-        RECEIVING_EMAILS,
-        format='html',
-    )
+    REDIS_CONN.rpush('bills', *payload)
 
 
-def get_set_of_bills_on_page(pq_doc):
+def get_bills(pqdoc):
     bills = set()
-    tables = pq_doc.find('table')
+    tables = pqdoc.find('table')
 
     for table in tables:
-        pytable = pq(table)
-        bill_name = pytable.find('td').eq(0).text()
-        bill_author = pytable.find('td').eq(2).text()
-        bill_caption = pytable.find('td').eq(8).text()
-        bill_url = pytable.find('a').eq(0).attr('href')
-        bills.add((bill_name, bill_author, bill_caption, bill_url))
+        bills.add(get_bill_text(table))
 
     return bills
 
 
-def count_tables(pq_doc):
-    return pq_doc.find('table').length
+def get_bill_text(table):
+    pyt = pq(table)
+    return (
+        pyt.find('td').eq(0).text(),
+        pyt.find('td').eq(2).text(),
+        pyt.find('td').eq(8).text(),
+        pyt.find('a').eq(0).attr('href')
+    )
+
+
+def count_bills(page):
+    return page.find('table').length
+
+
+def make_request(url, initial_pull_status=False):
+    while True:
+        try:
+            request = pq(url)
+            break
+        except requests.exceptions.ConnectionError:
+            print('Could not connect, trying again in 10 seconds.')
+            sleep(10)
+            continue
+
+    if initial_pull_status:
+        REDIS_CONN.set('last_initial_pull', request)
+
+    return request
 
 
 def main():
+    global FIRST_RUN
+
     try:
-        while True:
-            try:
-                inital_request = pq(url=TODAY_URL)
-                initial_count = count_tables(inital_request)
-                initial_bills = get_set_of_bills_on_page(inital_request)
-                break
-            except requests.exceptions.ConnectionError:
-                print('\nCould not connect to pull initial table count, trying again in 10 seconds')
-                sleep(10)
-                continue
+        if FIRST_RUN:
+            print('Initialized. Grabbing last pull from Redis.')
+            initial_pull = make_request(REDIS_CONN.get('last_initial_pull'))
+            FIRST_RUN = False
+        else:
+            print('A new beginning.')
+            initial_pull = make_request(TODAY_URL, initial_pull_status=True)
 
         while True:
-            try:
-                doc = pq(url=TODAY_URL)
-                current_count = count_tables(doc)
-                current_bills = get_set_of_bills_on_page(doc)
-            except requests.exceptions.ConnectionError:
-                print('\nError connecting, trying again in 60 seconds.')
-                sleep(60)
-                continue
+            current_pull = make_request(TODAY_URL)
+
+            initial_count = count_bills(initial_pull)
+            current_count = count_bills(current_pull)
 
             if current_count == initial_count:
                 sys.stdout.write('.')
                 sys.stdout.flush()
-                sleep(60 * 10)
+                sleep(60)
+            elif current_count < initial_count:
+                print('Page reset!')
+                break
             else:
-                new_bills = list(current_bills - initial_bills)
-                print('\nNew things have been filed!')
-                email_body = prepare_email_body(new_bills)
-                send_new_bill_email(email_body)
+                new_bills = get_bills(current_pull) - get_bills(initial_pull)
+                redis_new_bill_loader(new_bills)
                 break
         main()
 
     except KeyboardInterrupt:
-        print('\nStopping...')
+        print('Stopping...')
 
 
 if __name__ == '__main__':
