@@ -1,1 +1,1 @@
-worker: python sentry.py
+worker: python sentry.py & launcher.py
